@@ -19,8 +19,10 @@ import type { CarLot, ClientCriteria, AnalyzedLot } from "@/lib/types";
 import {
   backendRequest,
   backendRequestSafe,
+  selectBackendTransport,
   type BackendRequest,
 } from "@/lib/backend-transport.server";
+import { probeUbuntuApi } from "@/lib/ubuntu-api.server";
 import {
   auctionSourceCapabilitiesPayloadSchema,
   auctionSourceSchema,
