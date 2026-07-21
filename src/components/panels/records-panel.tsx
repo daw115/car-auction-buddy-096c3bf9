@@ -516,9 +516,39 @@ export function RecordDetailView({
             )}
           </div>
         </div>
-        <Button variant="ghost" onClick={onClose}>
-          ← Zamknij
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => void onRerunNow()}
+            disabled={!canRerun || rerunning}
+            title={
+              canRerun
+                ? "Uruchom to samo wyszukiwanie od nowa"
+                : "Rekord nie ma zapisanych kryteriów wyszukiwania."
+            }
+          >
+            {rerunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            <span className="ml-1">Ponów teraz</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onEditAndSearch}
+            disabled={!canRerun}
+            title="Załaduj kryteria do formularza i przejdź do wyszukiwarki"
+          >
+            <PenLine className="h-4 w-4" />
+            <span className="ml-1">Edytuj i szukaj</span>
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            ← Zamknij
+          </Button>
+        </div>
       </div>
 
       {/* AUTO-BUNDLE REPORTS */}
