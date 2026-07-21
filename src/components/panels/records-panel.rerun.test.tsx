@@ -10,32 +10,35 @@ import { RERUN_CRITERIA_KEY } from "@/lib/rerun-criteria";
 
 // --- Mocks --------------------------------------------------------------
 
-const navigateMock = vi.fn();
+const h = vi.hoisted(() => ({
+  navigateMock: vi.fn(),
+  toastMock: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+  backendGetRecord: vi.fn(),
+  backendRegenerateBundles: vi.fn(),
+  backendSearch: vi.fn(),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => navigateMock,
+  useNavigate: () => h.navigateMock,
   Link: ({ children, ...rest }: { children: ReactNode }) => <a {...rest}>{children}</a>,
 }));
 
-// useServerFn returns the fn as-is so we can assert on our stubs.
 vi.mock("@tanstack/react-start", () => ({
   useServerFn: (fn: unknown) => fn,
 }));
 
-const toastMock = { error: vi.fn(), info: vi.fn(), success: vi.fn() };
-vi.mock("sonner", () => ({ toast: toastMock }));
-
-const backendGetRecord = vi.fn();
-const backendRegenerateBundles = vi.fn();
-const backendSearch = vi.fn();
+vi.mock("sonner", () => ({ toast: h.toastMock }));
 
 vi.mock("@/functions/backend.functions", () => ({
   backendListRecords: vi.fn(),
   backendDeleteRecord: vi.fn(),
-  backendGetRecord: (...args: unknown[]) => backendGetRecord(...args),
-  backendRegenerateBundles: (...args: unknown[]) => backendRegenerateBundles(...args),
+  backendGetRecord: (...args: unknown[]) => h.backendGetRecord(...args),
+  backendRegenerateBundles: (...args: unknown[]) => h.backendRegenerateBundles(...args),
   backendListSearchAudit: vi.fn(),
-  backendSearch: (...args: unknown[]) => backendSearch(...args),
+  backendSearch: (...args: unknown[]) => h.backendSearch(...args),
 }));
+
+const { navigateMock, toastMock, backendGetRecord, backendRegenerateBundles, backendSearch } = h;
 
 // BidfaxBadge is a simple client component with no heavy deps — keep real
 // impl. If it grows deps that break jsdom, stub here.
