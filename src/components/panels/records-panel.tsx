@@ -368,7 +368,10 @@ export function RecordDetailView({
 }) {
   const fnDetailBackend = useServerFn(backendGetRecord);
   const fnRegenerateBundles = useServerFn(backendRegenerateBundles);
+  const fnRunSearch = useServerFn(backendSearch);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [rerunning, setRerunning] = useState(false);
 
   const { data: record, isLoading } = useQuery({
     queryKey: ["backend-record-detail", recordId],
