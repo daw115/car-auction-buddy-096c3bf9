@@ -194,6 +194,34 @@ function HomePage() {
   // przed ewentualnym nadpisaniem z rozpoznanej wiadomości klienta.
   const defaultsQ = useQuery(defaultCriteriaQuery());
   const prefilledRef = useRef(false);
+
+  // Rerun z rekordu: RecordDetailView zapisuje kryteria w sessionStorage pod
+  // RERUN_CRITERIA_KEY. Ma priorytet nad defaultsQ — konsumujemy raz przy
+  // mounting i ustawiamy `prefilledRef`, żeby defaults nie nadpisały.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let raw: string | null = null;
+    try {
+      raw = window.sessionStorage.getItem(RERUN_CRITERIA_KEY);
+      if (raw) window.sessionStorage.removeItem(RERUN_CRITERIA_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const cc = toRerunCriteria(parsed);
+    if (!cc) return;
+    prefilledRef.current = true;
+    setCriteria(cc);
+    toast.info("Załadowano kryteria z rekordu — sprawdź i kliknij „🔎 Wyszukaj".");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (prefilledRef.current) return;
     if (!defaultsQ.data) return;
