@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backendRequest,
   backendRequestSafe,
+  backendStreamRequest,
   selectBackendTransport,
   type BackendTransportError,
 } from "./backend-transport.server";
@@ -243,5 +244,70 @@ describe("backendRequestSafe", () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("net")) as unknown as typeof fetch;
     const res = await backendRequestSafe({ path: "/api/records" }, { records: [] });
     expect(res).toEqual({ records: [] });
+  });
+});
+
+describe("backendStreamRequest", () => {
+  function emptyStreamResponse(status = 200): Response {
+    const stream = new ReadableStream<Uint8Array>({ start(c) { c.close(); } });
+    return new Response(stream, { status });
+  }
+
+  it("fails closed without any fetch call when Ubuntu config is partial", async () => {
+    process.env.UBUNTU_API_BASE_URL = UBU_URL;
+    // Missing bearer / CF creds.
+    setLegacyEnv();
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await expect(backendStreamRequest({ path: "/api/logs/stream" })).rejects.toMatchObject({
+      status: 500,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses Ubuntu transport with auth + SSE headers when configured (legacy present, ignored)", async () => {
+    setUbuntuEnv();
+    setLegacyEnv();
+    const fetchMock = vi.fn().mockResolvedValue(emptyStreamResponse(200));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const res = await backendStreamRequest({ path: "/api/logs/stream" });
+    expect(res.transport).toBe("ubuntu");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url.startsWith(UBU_URL)).toBe(true);
+    expect(url).not.toContain(LEG_URL);
+    const h = init.headers as Record<string, string>;
+    expect(h.Authorization).toBe(`Bearer ${UBU_BEARER}`);
+    expect(h["CF-Access-Client-Id"]).toBe(CF_ID);
+    expect(h.Accept).toBe("text/event-stream");
+  });
+
+  it("uses legacy transport (API_BASE_URL + API_BEARER_TOKEN) without CF-Access headers", async () => {
+    setLegacyEnv();
+    const fetchMock = vi.fn().mockResolvedValue(emptyStreamResponse(200));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const res = await backendStreamRequest({ path: "/api/logs/stream" });
+    expect(res.transport).toBe("legacy");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${LEG_URL}/api/logs/stream`);
+    const h = init.headers as Record<string, string>;
+    expect(h.Authorization).toBe(`Bearer ${LEG_BEARER}`);
+    expect(h["CF-Access-Client-Id"]).toBeUndefined();
+    expect(h.Accept).toBe("text/event-stream");
+  });
+
+  it("does NOT fall back to legacy after Ubuntu was chosen (4xx/5xx)", async () => {
+    setUbuntuEnv();
+    setLegacyEnv();
+    for (const status of [404, 500, 503] as const) {
+      const fetchMock = vi.fn().mockResolvedValue(new Response("no", { status }));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      await expect(backendStreamRequest({ path: "/api/logs/stream" })).rejects.toMatchObject({
+        status,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url] = fetchMock.mock.calls[0] as [string];
+      expect(url).not.toContain(LEG_URL);
+    }
   });
 });

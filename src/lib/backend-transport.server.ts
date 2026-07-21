@@ -25,6 +25,7 @@ import {
   isUbuntuApiConfigured,
   readUbuntuApiConfig,
   ubuntuApiRequest,
+  ubuntuApiStreamRequest,
   UbuntuApiError,
   canonicalizeBaseUrl,
 } from "./ubuntu-api.server";
@@ -278,4 +279,108 @@ export async function backendRequestSafe<T>(req: BackendRequest, fallback: T): P
 /** Test-only helper: expose whether canonicalization considers the URL valid. */
 export function _debugValidateUbuntuBaseUrl(input: string): boolean {
   return canonicalizeBaseUrl(input) !== null;
+}
+
+// -------------------- streaming (SSE proxy) --------------------
+
+export type BackendStreamRequest = {
+  path: string;
+  method?: "GET" | "POST";
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  /** Optional timeout for the initial connect (headers received). */
+  timeoutMs?: number;
+  /** Test seam — dependency-inject fetch for the legacy branch only. */
+  fetchImpl?: typeof fetch;
+};
+
+export type BackendStreamResponse = {
+  body: ReadableStream<Uint8Array>;
+  status: number;
+  transport: BackendTransportKind;
+};
+
+async function streamLegacy(req: BackendStreamRequest): Promise<BackendStreamResponse> {
+  const baseRaw = (process.env.API_BASE_URL ?? "").replace(/\/+$/, "");
+  const token = process.env.API_BEARER_TOKEN ?? "";
+  if (!baseRaw || !token) {
+    throw terr(500, "Backend nieskonfigurowany — brak sekretów API_BASE_URL / API_BEARER_TOKEN.");
+  }
+  const method = req.method ?? "GET";
+  const fetchImpl = req.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (req.signal) {
+    if (req.signal.aborted) controller.abort();
+    else req.signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = req.timeoutMs ? setTimeout(() => controller.abort(), req.timeoutMs) : null;
+
+  let response: Response;
+  try {
+    response = await fetchImpl(`${baseRaw}${req.path}`, {
+      method,
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${token}`,
+        ...(req.headers ?? {}),
+      },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (timer) clearTimeout(timer);
+    if (req.signal) req.signal.removeEventListener("abort", onAbort);
+    if ((err as Error).name === "AbortError") {
+      throw terr(408, "Przekroczono limit czasu — spróbuj ponownie.");
+    }
+    throw terr(0, "Błąd połączenia z backendem.");
+  }
+  if (timer) clearTimeout(timer);
+
+  if (!response.ok) {
+    if (req.signal) req.signal.removeEventListener("abort", onAbort);
+    let msg: string;
+    if (response.status === 401 || response.status === 403)
+      msg = "Błąd konfiguracji — skontaktuj się z administratorem.";
+    else if (response.status === 404) msg = "Nie znaleziono zasobu.";
+    else if (response.status >= 500) msg = "Błąd backendu, spróbuj ponownie za chwilę.";
+    else msg = `Backend ${response.status}`;
+    throw terr(response.status, msg);
+  }
+  if (!response.body) {
+    if (req.signal) req.signal.removeEventListener("abort", onAbort);
+    throw terr(response.status, "Backend zwrócił nieprawidłową odpowiedź.");
+  }
+  return { body: response.body, status: response.status, transport: "legacy" };
+}
+
+async function streamUbuntu(req: BackendStreamRequest): Promise<BackendStreamResponse> {
+  const { path, query } = splitQuery(req.path);
+  try {
+    const result = await ubuntuApiStreamRequest({
+      method: req.method ?? "GET",
+      path,
+      query,
+      headers: req.headers,
+      timeoutMs: req.timeoutMs,
+      signal: req.signal,
+    });
+    return { body: result.body, status: result.status, transport: "ubuntu" };
+  } catch (err) {
+    throw ubuntuErrorToTransport(err);
+  }
+}
+
+/**
+ * Streaming request. Selects transport identically to `backendRequest`
+ * (fail-closed on partial Ubuntu config, no runtime fallback between
+ * transports). Returns the raw upstream `ReadableStream` — the caller is
+ * responsible for wrapping it in a `Response` with SSE headers.
+ */
+export async function backendStreamRequest(
+  req: BackendStreamRequest,
+): Promise<BackendStreamResponse> {
+  const transport = selectBackendTransport();
+  if (transport === "ubuntu") return streamUbuntu(req);
+  return streamLegacy(req);
 }

@@ -9,6 +9,7 @@ import {
   probeUbuntuApi,
   readUbuntuApiConfig,
   ubuntuApiRequest,
+  ubuntuApiStreamRequest,
   UbuntuApiError,
 } from "./ubuntu-api.server";
 
@@ -280,5 +281,60 @@ describe("probeUbuntuApi", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("no", { status: 500 }));
     const result = await probeUbuntuApi({ fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result.status).toBe("down");
+  });
+});
+
+describe("ubuntuApiStreamRequest", () => {
+  it("throws unconfigured without any network activity when env is missing", async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      ubuntuApiStreamRequest({ path: "/logs/stream", fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).rejects.toMatchObject({ kind: "unconfigured" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("sends CF-Access + bearer + text/event-stream headers", async () => {
+    setEnv();
+    const stream = new ReadableStream<Uint8Array>({ start(c) { c.close(); } });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    const res = await ubuntuApiStreamRequest({
+      path: "/logs/stream",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(ReadableStream);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://ubuntu.example.org/api/logs/stream");
+    const h = (init as RequestInit).headers as Record<string, string>;
+    expect(h.Authorization).toBe(`Bearer ${BEARER}`);
+    expect(h["CF-Access-Client-Id"]).toBe(CF_ID);
+    expect(h["CF-Access-Client-Secret"]).toBe(CF_SECRET);
+    expect(h.Accept).toBe("text/event-stream");
+    expect(h["X-Request-Id"]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("does NOT retry on 5xx (streaming is single-shot)", async () => {
+    setEnv();
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("bad", { status: 503 }));
+    await expect(
+      ubuntuApiStreamRequest({ path: "/logs/stream", fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).rejects.toBeInstanceOf(UbuntuApiError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes error messages — no bearer / URL leakage on 401", async () => {
+    setEnv();
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("secret", { status: 401 }));
+    await expect(
+      ubuntuApiStreamRequest({ path: "/logs/stream", fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof UbuntuApiError)) return false;
+      return (
+        !err.message.includes(BEARER) &&
+        !err.message.includes(CF_SECRET) &&
+        !err.message.includes("ubuntu.example.org") &&
+        err.kind === "unauthorized"
+      );
+    });
   });
 });

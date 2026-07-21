@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Trash2, Play, PenLine } from "lucide-react";
 
 import {
   backendListRecords,
@@ -11,9 +11,11 @@ import {
   backendGetRecord,
   backendRegenerateBundles,
   backendListSearchAudit,
+  backendSearch,
 } from "@/functions/backend.functions";
 import type { BackendRecord, SearchAuditEntry } from "@/functions/backend.functions";
 import { SITE_USERS } from "@/lib/site-user";
+import { RERUN_CRITERIA_KEY, toRerunCriteria } from "@/lib/rerun-criteria";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -366,7 +368,10 @@ export function RecordDetailView({
 }) {
   const fnDetailBackend = useServerFn(backendGetRecord);
   const fnRegenerateBundles = useServerFn(backendRegenerateBundles);
+  const fnRunSearch = useServerFn(backendSearch);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [rerunning, setRerunning] = useState(false);
 
   const { data: record, isLoading } = useQuery({
     queryKey: ["backend-record-detail", recordId],
@@ -440,6 +445,45 @@ export function RecordDetailView({
     parsedData;
   const artifactUrls = (record as any).artifact_urls || {};
   const searchedBy = getRecordSearchedBy(record);
+  const rerunCriteria = toRerunCriteria(parsedData.criteria);
+  const canRerun = rerunCriteria !== null;
+
+  async function onRerunNow() {
+    if (!rerunCriteria) {
+      toast.error("Rekord nie ma zapisanych kryteriów wyszukiwania.");
+      return;
+    }
+    setRerunning(true);
+    try {
+      const res = await fnRunSearch({ data: { criteria: rerunCriteria } });
+      const total = res.analyzed_lots?.length ?? res.listings?.length ?? 0;
+      if (total === 0) {
+        toast.info("Nie znaleziono aukcji spełniających kryteria.");
+      } else {
+        toast.success(`Ponowione wyszukiwanie: znaleziono ${total} ofert.`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["backend-records"] });
+    } catch (e) {
+      const err = e as { message?: string };
+      toast.error(err?.message || "Błąd ponownego wyszukiwania.");
+    } finally {
+      setRerunning(false);
+    }
+  }
+
+  function onEditAndSearch() {
+    if (!rerunCriteria) {
+      toast.error("Rekord nie ma zapisanych kryteriów wyszukiwania.");
+      return;
+    }
+    try {
+      sessionStorage.setItem(RERUN_CRITERIA_KEY, JSON.stringify(rerunCriteria));
+    } catch {
+      toast.error("Nie udało się przekazać kryteriów do formularza.");
+      return;
+    }
+    void navigate({ to: "/" });
+  }
 
   return (
     <Card className="p-4">
@@ -472,9 +516,39 @@ export function RecordDetailView({
             )}
           </div>
         </div>
-        <Button variant="ghost" onClick={onClose}>
-          ← Zamknij
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => void onRerunNow()}
+            disabled={!canRerun || rerunning}
+            title={
+              canRerun
+                ? "Uruchom to samo wyszukiwanie od nowa"
+                : "Rekord nie ma zapisanych kryteriów wyszukiwania."
+            }
+          >
+            {rerunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            <span className="ml-1">Ponów teraz</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onEditAndSearch}
+            disabled={!canRerun}
+            title="Załaduj kryteria do formularza i przejdź do wyszukiwarki"
+          >
+            <PenLine className="h-4 w-4" />
+            <span className="ml-1">Edytuj i szukaj</span>
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            ← Zamknij
+          </Button>
+        </div>
       </div>
 
       {/* AUTO-BUNDLE REPORTS */}
