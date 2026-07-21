@@ -379,3 +379,93 @@ export async function probeUbuntuApi(
     return { status: "down", latencyMs: Date.now() - startedAt, requestId };
   }
 }
+
+export type UbuntuApiStreamRequest = {
+  method?: "GET" | "POST";
+  path: string;
+  query?: UbuntuApiRequest["query"];
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+};
+
+export type UbuntuApiStreamResponse = {
+  body: ReadableStream<Uint8Array>;
+  status: number;
+  requestId: string;
+};
+
+/**
+ * Streaming variant of {@link ubuntuApiRequest}. Returns the raw response body
+ * as a `ReadableStream`, without buffering, JSON parsing, or retry. Used by
+ * SSE proxy endpoints where the client (EventSource) handles reconnection.
+ *
+ * Same auth headers as `ubuntuApiRequest` (Bearer, CF-Access, X-Request-Id)
+ * plus `Accept: text/event-stream` by default. Fails closed when the Ubuntu
+ * API is not configured. Non-2xx responses throw `UbuntuApiError`.
+ */
+export async function ubuntuApiStreamRequest(
+  request: UbuntuApiStreamRequest,
+): Promise<UbuntuApiStreamResponse> {
+  const requestId = generateRequestId();
+  const config = readUbuntuApiConfig();
+  if (!config) {
+    throw new UbuntuApiError("unconfigured", publicMessage("unconfigured", null), requestId);
+  }
+  const method = request.method ?? "GET";
+  const fetchImpl = request.fetchImpl ?? fetch;
+  const url = buildUrl(config.baseUrl, request.path, request.query);
+  const headers: Record<string, string> = {
+    Accept: "text/event-stream",
+    Authorization: `Bearer ${config.bearerToken}`,
+    "CF-Access-Client-Id": config.cfAccessClientId,
+    "CF-Access-Client-Secret": config.cfAccessClientSecret,
+    "X-Request-Id": requestId,
+    ...(request.headers ?? {}),
+  };
+
+  // No internal timer — SSE connections are long-lived. Caller passes an
+  // AbortSignal (usually from the incoming request) to close the upstream
+  // when the client disconnects. Optional `timeoutMs` guards only the
+  // initial connect (headers received), not the stream body.
+  const controller = new AbortController();
+  const upstreamSignal = controller.signal;
+  const onAbort = () => controller.abort();
+  if (request.signal) {
+    if (request.signal.aborted) controller.abort();
+    else request.signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = request.timeoutMs
+    ? setTimeout(() => controller.abort(), request.timeoutMs)
+    : null;
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { method, headers, signal: upstreamSignal });
+  } catch (error) {
+    if (timer) clearTimeout(timer);
+    if (request.signal) request.signal.removeEventListener("abort", onAbort);
+    const aborted = (error as { name?: string })?.name === "AbortError";
+    const kind: UbuntuApiErrorKind = aborted ? "timeout" : "network_error";
+    throw new UbuntuApiError(kind, publicMessage(kind, null), requestId);
+  }
+  if (timer) clearTimeout(timer);
+
+  if (!response.ok) {
+    if (request.signal) request.signal.removeEventListener("abort", onAbort);
+    const status = response.status;
+    const kind = statusToKind(status);
+    throw new UbuntuApiError(kind, publicMessage(kind, status), requestId, status);
+  }
+  if (!response.body) {
+    if (request.signal) request.signal.removeEventListener("abort", onAbort);
+    throw new UbuntuApiError(
+      "invalid_response",
+      publicMessage("invalid_response", response.status),
+      requestId,
+      response.status,
+    );
+  }
+  return { body: response.body, status: response.status, requestId };
+}
