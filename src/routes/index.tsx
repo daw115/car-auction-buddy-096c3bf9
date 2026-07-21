@@ -218,7 +218,7 @@ function HomePage() {
     if (!cc) return;
     prefilledRef.current = true;
     setCriteria(cc);
-    toast.info("Załadowano kryteria z rekordu — sprawdź i kliknij „🔎 Wyszukaj".");
+    toast.info('Załadowano kryteria z rekordu — sprawdź i kliknij "🔎 Wyszukaj".');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
