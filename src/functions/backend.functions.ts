@@ -219,9 +219,9 @@ export async function assertAuctionSourcesAvailable(
 }
 
 /** Dostępność źródeł potwierdzona przez backend; nie zwraca żadnych sekretów. */
-export const backendSourceCapabilities = createServerFn({ method: "GET" }).middleware([siteSessionMiddleware]).handler(async () =>
-  getSourceCapabilities(),
-);
+export const backendSourceCapabilities = createServerFn({ method: "GET" })
+  .middleware([siteSessionMiddleware])
+  .handler(async () => getSourceCapabilities());
 
 // ---------- typy odpowiedzi backendu ----------
 
@@ -603,18 +603,20 @@ export const backendDeleteFeedback = createServerFn({ method: "POST" })
   });
 
 /** POST /api/feedback/analyze — meta-analiza. */
-export const backendAnalyzeFeedback = createServerFn({ method: "POST" }).middleware([siteSessionMiddleware]).handler(async () =>
-  callBackend<any>({ path: "/api/feedback/analyze", method: "POST" }),
-);
+export const backendAnalyzeFeedback = createServerFn({ method: "POST" })
+  .middleware([siteSessionMiddleware])
+  .handler(async () => callBackend<any>({ path: "/api/feedback/analyze", method: "POST" }));
 
 // ---------- LLM cache ----------
 
-export const backendClearLlmCache = createServerFn({ method: "POST" }).middleware([siteSessionMiddleware]).handler(async () => {
-  return callBackendSafe<{ removed: number }>(
-    { path: "/api/llm-cache", method: "DELETE" },
-    { removed: 0 },
-  );
-});
+export const backendClearLlmCache = createServerFn({ method: "POST" })
+  .middleware([siteSessionMiddleware])
+  .handler(async () => {
+    return callBackendSafe<{ removed: number }>(
+      { path: "/api/llm-cache", method: "DELETE" },
+      { removed: 0 },
+    );
+  });
 
 export const backendListLlmCacheEntries = createServerFn({ method: "GET" })
   .middleware([siteSessionMiddleware])
@@ -682,8 +684,9 @@ export const backendFetchHtml = createServerFn({ method: "POST" })
 
 // ---------- Model normalizations ----------
 
-export const backendListModelNormalizations = createServerFn({ method: "GET" }).middleware([siteSessionMiddleware]).handler(
-  async () => {
+export const backendListModelNormalizations = createServerFn({ method: "GET" })
+  .middleware([siteSessionMiddleware])
+  .handler(async () => {
     return callBackendSafe<{
       items: Array<{
         id: string | number;
@@ -695,8 +698,7 @@ export const backendListModelNormalizations = createServerFn({ method: "GET" }).
       }>;
       stats?: { total: number; by_make: Record<string, number> };
     }>({ path: "/api/model-normalizations" }, { items: [] });
-  },
-);
+  });
 
 export const backendDeleteModelNormalization = createServerFn({ method: "POST" })
   .middleware([siteSessionMiddleware])
@@ -745,9 +747,11 @@ export const backendParseClientMessage = createServerFn({ method: "POST" })
 
 // ---------- Database browser ----------
 
-export const backendDbOverview = createServerFn({ method: "GET" }).middleware([siteSessionMiddleware]).handler(async () => {
-  return callBackendSafe<any>({ path: "/api/db/overview" }, null);
-});
+export const backendDbOverview = createServerFn({ method: "GET" })
+  .middleware([siteSessionMiddleware])
+  .handler(async () => {
+    return callBackendSafe<any>({ path: "/api/db/overview" }, null);
+  });
 
 // ---------- Health ----------
 
@@ -824,7 +828,6 @@ export const backendHealth = createServerFn({ method: "GET" })
       };
     },
   );
-
 
 // ---------- Search audit (Supabase operation_logs) ----------
 
