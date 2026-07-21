@@ -25,6 +25,7 @@ import {
   getUnavailableAuctionSources,
   normalizeAuctionSources,
 } from "@/lib/auction-sources";
+import { RERUN_CRITERIA_KEY, toRerunCriteria } from "@/lib/rerun-criteria";
 
 import { ClientMessageCard, type ParseError } from "@/components/panels/client-message-card";
 
