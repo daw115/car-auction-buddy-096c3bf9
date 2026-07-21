@@ -25,6 +25,7 @@ import {
   isUbuntuApiConfigured,
   readUbuntuApiConfig,
   ubuntuApiRequest,
+  ubuntuApiStreamRequest,
   UbuntuApiError,
   canonicalizeBaseUrl,
 } from "./ubuntu-api.server";
