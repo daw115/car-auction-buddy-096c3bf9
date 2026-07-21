@@ -129,6 +129,54 @@ describe("RecordDetailView — Ponów teraz / Edytuj i szukaj", () => {
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("boom"));
   });
 
+  it("Ponów teraz shows fallback error message when backend rejects without message", async () => {
+    backendGetRecord.mockResolvedValue(makeRecord());
+    // Reject with a plain object (no message) — should hit fallback branch
+    backendSearch.mockRejectedValue({});
+
+    render(<RecordDetailView recordId={42} onClose={() => {}} />, { wrapper: wrapper() });
+    await userEvent.click(await screen.findByRole("button", { name: /Ponów teraz/i }));
+
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Błąd ponownego wyszukiwania."),
+    );
+  });
+
+  it("Ponów teraz re-enables the button after an error so the user can retry", async () => {
+    backendGetRecord.mockResolvedValue(makeRecord());
+    backendSearch.mockRejectedValueOnce(new Error("network down"));
+
+    render(<RecordDetailView recordId={42} onClose={() => {}} />, { wrapper: wrapper() });
+    const btn = await screen.findByRole("button", { name: /Ponów teraz/i });
+    await userEvent.click(btn);
+
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("network down"));
+    // Button must return to enabled state (rerunning=false) so retry is possible
+    await waitFor(() => expect(btn).toBeEnabled());
+  });
+
+  it("Ponów teraz recovers on retry: error first, success on second click", async () => {
+    backendGetRecord.mockResolvedValue(makeRecord());
+    backendSearch
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({ analyzed_lots: [{}, {}] });
+
+    render(<RecordDetailView recordId={42} onClose={() => {}} />, { wrapper: wrapper() });
+    const btn = await screen.findByRole("button", { name: /Ponów teraz/i });
+
+    // First attempt fails
+    await userEvent.click(btn);
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("temporary failure"));
+    await waitFor(() => expect(btn).toBeEnabled());
+
+    // Second attempt succeeds
+    await userEvent.click(btn);
+    await waitFor(() => expect(backendSearch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(expect.stringMatching(/2 ofert/)),
+    );
+  });
+
   it("Edytuj i szukaj writes normalized criteria to sessionStorage and navigates to /", async () => {
     backendGetRecord.mockResolvedValue(makeRecord());
 
