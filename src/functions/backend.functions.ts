@@ -753,71 +753,78 @@ export const backendDbOverview = createServerFn({ method: "GET" }).middleware([s
 
 type ServiceStatus = "ok" | "down" | "unconfigured";
 
-/** Zbiorczy health-check: baza (Supabase) + backend (usacar-api /health). */
-export const backendHealth = createServerFn({ method: "GET" }).middleware([siteSessionMiddleware]).handler(
-  async (): Promise<{
-    checkedAt: string;
-    durationMs: number;
-    services: {
-      database: { status: ServiceStatus; error?: string };
-      backend: { status: ServiceStatus; url?: string; error?: string };
-    };
-  }> => {
-    const startedAt = Date.now();
+/**
+ * Zbiorczy health-check: baza (Supabase) + backend przez wspólny transport.
+ * Wybór transportu (Ubuntu API vs legacy) i probe realizuje
+ * src/lib/backend-transport.server.ts + src/lib/ubuntu-api.server.ts —
+ * ten handler nie czyta bezpośrednio żadnych sekretów.
+ */
+export const backendHealth = createServerFn({ method: "GET" })
+  .middleware([siteSessionMiddleware])
+  .handler(
+    async (): Promise<{
+      checkedAt: string;
+      durationMs: number;
+      services: {
+        database: { status: ServiceStatus; error?: string };
+        backend: { status: ServiceStatus; transport?: "ubuntu" | "legacy"; error?: string };
+      };
+    }> => {
+      const startedAt = Date.now();
 
-    let dbStatus: ServiceStatus = "ok";
-    let dbError: string | undefined;
-    try {
-      const { error } = await supabaseAdmin.from("app_config").select("id").limit(1);
-      if (error) {
-        dbStatus = "down";
-        dbError = error.message;
-      }
-    } catch (e) {
-      dbStatus = "down";
-      dbError = (e as Error).message;
-    }
-
-    const backendUrl = process.env.API_BASE_URL?.replace(/\/+$/, "");
-    let backendStatus: ServiceStatus = "unconfigured";
-    let backendErrorMsg: string | undefined;
-    if (backendUrl) {
+      let dbStatus: ServiceStatus = "ok";
+      let dbError: string | undefined;
       try {
-        const token = process.env.API_BEARER_TOKEN;
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 5000);
-        const res = await fetch(`${backendUrl}/health`, {
-          signal: ctrl.signal,
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        clearTimeout(timer);
-        if (res.ok) backendStatus = "ok";
-        else {
-          backendStatus = "down";
-          backendErrorMsg = `HTTP ${res.status}`;
+        const { error } = await supabaseAdmin.from("app_config").select("id").limit(1);
+        if (error) {
+          dbStatus = "down";
+          dbError = error.message;
         }
       } catch (e) {
-        backendStatus = "down";
-        backendErrorMsg = (e as Error).message?.includes("abort")
-          ? "Timeout (5s)"
-          : (e as Error).message;
+        dbStatus = "down";
+        dbError = (e as Error).message;
       }
-    }
 
-    return {
-      checkedAt: new Date().toISOString(),
-      durationMs: Date.now() - startedAt,
-      services: {
-        database: { status: dbStatus, error: dbError },
-        backend: {
-          status: backendStatus,
-          url: backendUrl ? new URL(backendUrl).host : undefined,
-          error: backendErrorMsg,
+      let backendStatus: ServiceStatus = "unconfigured";
+      let backendErrorMsg: string | undefined;
+      let transport: "ubuntu" | "legacy" | undefined;
+      try {
+        transport = selectBackendTransport();
+        if (transport === "ubuntu") {
+          const probe = await probeUbuntuApi();
+          backendStatus =
+            probe.status === "ok" ? "ok" : probe.status === "down" ? "down" : "unconfigured";
+        } else {
+          try {
+            await backendRequest<unknown>({ path: "/health", timeoutMs: 5_000 });
+            backendStatus = "ok";
+          } catch (e) {
+            const err = e as { status?: number; message?: string };
+            if (err?.status === 500 && /nieskonfigurowany/i.test(err?.message ?? "")) {
+              backendStatus = "unconfigured";
+            } else {
+              backendStatus = "down";
+              backendErrorMsg = err?.message;
+            }
+          }
+        }
+      } catch (e) {
+        // Partial Ubuntu config → fail-closed: transport selection threw.
+        backendStatus = "down";
+        backendErrorMsg = (e as { message?: string })?.message ?? "Błąd konfiguracji transportu.";
+      }
+
+      return {
+        checkedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt,
+        services: {
+          database: { status: dbStatus, error: dbError },
+          backend: { status: backendStatus, transport, error: backendErrorMsg },
         },
-      },
-    };
-  },
-);
+      };
+    },
+  );
+
 
 // ---------- Search audit (Supabase operation_logs) ----------
 
