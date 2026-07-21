@@ -445,6 +445,45 @@ export function RecordDetailView({
     parsedData;
   const artifactUrls = (record as any).artifact_urls || {};
   const searchedBy = getRecordSearchedBy(record);
+  const rerunCriteria = toRerunCriteria(parsedData.criteria);
+  const canRerun = rerunCriteria !== null;
+
+  async function onRerunNow() {
+    if (!rerunCriteria) {
+      toast.error("Rekord nie ma zapisanych kryteriów wyszukiwania.");
+      return;
+    }
+    setRerunning(true);
+    try {
+      const res = await fnRunSearch({ data: { criteria: rerunCriteria } });
+      const total = res.analyzed_lots?.length ?? res.listings?.length ?? 0;
+      if (total === 0) {
+        toast.info("Nie znaleziono aukcji spełniających kryteria.");
+      } else {
+        toast.success(`Ponowione wyszukiwanie: znaleziono ${total} ofert.`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["backend-records"] });
+    } catch (e) {
+      const err = e as { message?: string };
+      toast.error(err?.message || "Błąd ponownego wyszukiwania.");
+    } finally {
+      setRerunning(false);
+    }
+  }
+
+  function onEditAndSearch() {
+    if (!rerunCriteria) {
+      toast.error("Rekord nie ma zapisanych kryteriów wyszukiwania.");
+      return;
+    }
+    try {
+      sessionStorage.setItem(RERUN_CRITERIA_KEY, JSON.stringify(rerunCriteria));
+    } catch {
+      toast.error("Nie udało się przekazać kryteriów do formularza.");
+      return;
+    }
+    void navigate({ to: "/" });
+  }
 
   return (
     <Card className="p-4">
