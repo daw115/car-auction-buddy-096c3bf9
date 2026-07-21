@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Trash2, Play, PenLine } from "lucide-react";
 
 import {
   backendListRecords,
@@ -11,9 +11,11 @@ import {
   backendGetRecord,
   backendRegenerateBundles,
   backendListSearchAudit,
+  backendSearch,
 } from "@/functions/backend.functions";
 import type { BackendRecord, SearchAuditEntry } from "@/functions/backend.functions";
 import { SITE_USERS } from "@/lib/site-user";
+import { RERUN_CRITERIA_KEY, toRerunCriteria } from "@/lib/rerun-criteria";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
