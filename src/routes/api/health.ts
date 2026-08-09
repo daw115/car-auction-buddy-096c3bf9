@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { probeUbuntuApi } from "@/lib/ubuntu-api.server";
+import {
+  isAiConfigured,
+  readAnthropicCredential,
+  resolveAiProviderFromEnv,
+} from "@/lib/ai-credentials.server";
 
 type Status = "ok" | "down" | "unconfigured";
 
@@ -38,7 +43,11 @@ export const Route = createFileRoute("/api/health")({
           probeUbuntuApi(),
         ]);
 
-        const ai: Status = process.env.ANTHROPIC_API_KEY ? "ok" : "unconfigured";
+        // Covers every credential the deployment can actually run on — an
+        // ANTHROPIC_API_KEY-only check reported a Claude Code account (Bearer
+        // token) and a Gemini-only setup as `unconfigured`.
+        const ai: Status = isAiConfigured() ? "ok" : "unconfigured";
+        const anthropic = readAnthropicCredential();
         // Backwards-compatible readiness: Ubuntu API is optional in this
         // migration phase — its `unconfigured`/`down` state MUST NOT flip the
         // whole /api/health to 503 while no production screen depends on it.
@@ -58,6 +67,12 @@ export const Route = createFileRoute("/api/health")({
                 latencyMs: ubuntuApi.latencyMs,
                 requestId: ubuntuApi.requestId,
               },
+            },
+            // Sibling field rather than a richer `services.ai` — the status
+            // panel types that one as a bare status string.
+            aiAuth: {
+              provider: resolveAiProviderFromEnv(),
+              authMode: anthropic.authMode,
             },
           },
           { status: allOk ? 200 : 503 },
