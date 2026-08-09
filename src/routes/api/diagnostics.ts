@@ -73,6 +73,15 @@ export const Route = createFileRoute("/api/diagnostics")({
             "Klucz Anthropic (opcjonalny — backend ma własny)",
             false,
           ),
+          check(
+            "ANTHROPIC_AUTH_TOKEN",
+            "ai",
+            "Token OAuth konta Claude Code / subskrypcji — alternatywa dla ANTHROPIC_API_KEY",
+            false,
+            {
+              hint: "Token jest krótkotrwały i nie odnawia się sam po stronie serwera — po wygaśnięciu wywołania AI zwrócą 401. Do stałego deploymentu użyj ANTHROPIC_API_KEY.",
+            },
+          ),
           check("GEMINI_API_KEY", "ai", "Klucz Gemini (opcjonalny)", false),
           check("VITE_SUPABASE_URL", "supabase", "URL projektu Supabase (klient)", true),
           check("VITE_SUPABASE_PUBLISHABLE_KEY", "supabase", "Publiczny klucz Supabase", true),
