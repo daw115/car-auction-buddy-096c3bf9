@@ -58,8 +58,6 @@ export function resolveAiProviderFromEnv(): AiProvider {
 
 export function isAiConfigured(): boolean {
   return (
-    readAnthropicCredential().configured ||
-    hasGeminiCredential() ||
-    hasGeminiEnterpriseCredential()
+    readAnthropicCredential().configured || hasGeminiCredential() || hasGeminiEnterpriseCredential()
   );
 }
